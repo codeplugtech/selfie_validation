@@ -1,6 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from typing import List
+from fastapi import FastAPI, File, UploadFile
+from typing import List, Optional
 import logging
+
+from service.selfie_urls import SelfieRequest, UnifiedSelfieService
 from service.upload_service import SelfieUploadService
 
 # Configure logging
@@ -13,16 +15,18 @@ app = FastAPI(title="Advanced Selfie Validation API")
 selfie_upload_service = SelfieUploadService()
 
 
-@app.post("/validate_advanced_selfies/")
-async def validate_advanced_selfies(files: List[UploadFile] = File(...)):
+@app.post("/validate_selfies/")
+async def validate_selfies(
+    files: Optional[List[UploadFile]] = File(None),
+    urls: Optional[SelfieRequest] = None
+):
+    service = UnifiedSelfieService()
     try:
-        results = selfie_upload_service.process_images(files)
+        url_list = urls.urls if urls else None
+        results = await service.process_images(files=files, urls=url_list)
         return results
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        await service.cleanup()
 
 
 if __name__ == "__main__":
