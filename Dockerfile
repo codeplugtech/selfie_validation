@@ -2,31 +2,37 @@
 FROM python:3.11-slim-buster
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
 WORKDIR /app
 
-# Copy requirements file
+# Copy requirements file and install Python dependencies
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
-COPY . .
+# Create a non-root user
+RUN useradd -m appuser
 
-# Download YOLO models
-RUN mkdir -p /root/.ultralytics/models
-RUN wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt -O /root/.ultralytics/models/yolov8n-face.pt
+# Create models directory and set permissions
+RUN mkdir -p models && \
+    wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt -O models/yolov8n-face.pt && \
+    chown -R appuser:appuser /app
+
+# Copy the application code and set permissions
+COPY . .
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose the port the app runs on
 EXPOSE 8000
