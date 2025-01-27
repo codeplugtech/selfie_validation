@@ -7,3 +7,5 @@ ultralytics
 mediapipe
 python-multipart
 omegaconf
+aiofiles
+aiohttp
