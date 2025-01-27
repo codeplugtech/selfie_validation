@@ -14,7 +14,7 @@ class AdvancedSelfieValidator:
         Initialize ML models for selfie validation
         """
         try:
-            self.face_detector = YOLO('models/yolov8n-face.pt')
+            self.face_detector = YOLO('models/yolov11n-face.pt')
 
             self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
                 static_image_mode=True,

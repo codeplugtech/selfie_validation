@@ -24,7 +24,7 @@ RUN useradd -m appuser
 
 # Create models directory and set permissions
 RUN mkdir -p models && \
-    wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt -O models/yolov8n-face.pt && \
+    wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov11n-face.pt -O models/yolov11n-face.pt && \
     chown -R appuser:appuser /app
 
 # Copy the application code and set permissions
