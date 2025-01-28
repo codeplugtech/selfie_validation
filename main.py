@@ -1,8 +1,10 @@
-from fastapi import FastAPI, File, UploadFile
-from typing import List, Optional
 import logging
+from typing import List, Optional
 
-from service.selfie_urls import SelfieRequest, UnifiedSelfieService
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from pydantic import BaseModel
+
+from service.selfie_urls import UnifiedSelfieService
 from service.upload_service import SelfieUploadService
 
 # Configure logging
@@ -15,15 +17,39 @@ app = FastAPI(title="Advanced Selfie Validation API")
 selfie_upload_service = SelfieUploadService()
 
 
+class SelfieURLs(BaseModel):
+    urls: List[str]
+
+
 @app.post("/validate_selfies/")
-async def validate_selfies(
-    files: Optional[List[UploadFile]] = File(None),
-    urls: Optional[SelfieRequest] = None
+async def validate_selfies_urls(
+        data: SelfieURLs
 ):
+    logger.info("Request data: %s", data)
+
+    if not data.urls:
+        raise HTTPException(
+            status_code=400,
+            detail="URLs list cannot be empty"
+        )
+
     service = UnifiedSelfieService()
     try:
-        url_list = urls.urls if urls else None
-        results = await service.process_images(files=files, urls=url_list)
+        results = await service.process_images(files=None, urls=data.urls)
+        return results
+    finally:
+        await service.cleanup()
+
+
+@app.post("/validate_selfies/upload/")
+async def validate_selfies_files(
+        files: List[UploadFile] = File(...)
+):
+    logger.info("Request files: %s", files)
+
+    service = UnifiedSelfieService()
+    try:
+        results = await service.process_images(files=files, urls=[])
         return results
     finally:
         await service.cleanup()

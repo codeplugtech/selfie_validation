@@ -1,4 +1,4 @@
-from fastapi import  UploadFile, HTTPException
+from fastapi import UploadFile, HTTPException
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, HttpUrl
 import aiohttp
@@ -11,11 +11,6 @@ from urllib.parse import urlparse
 from service.selfie_validator import AdvancedSelfieValidator
 
 logger = logging.getLogger(__name__)
-
-
-class SelfieRequest(BaseModel):
-    urls: Optional[List[HttpUrl]] = None
-
 
 class UnifiedSelfieService:
     def __init__(self):
