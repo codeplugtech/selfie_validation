@@ -5,7 +5,6 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from service.selfie_urls import UnifiedSelfieService
-from service.upload_service import SelfieUploadService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -14,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 # FastAPI Application
 app = FastAPI(title="Advanced Selfie Validation API")
-selfie_upload_service = SelfieUploadService()
-
+service = UnifiedSelfieService()
 
 class SelfieURLs(BaseModel):
     urls: List[str]
@@ -32,8 +30,6 @@ async def validate_selfies_urls(
             status_code=400,
             detail="URLs list cannot be empty"
         )
-
-    service = UnifiedSelfieService()
     try:
         results = await service.process_images(files=None, urls=data.urls)
         return results
@@ -46,8 +42,6 @@ async def validate_selfies_files(
         files: List[UploadFile] = File(...)
 ):
     logger.info("Request files: %s", files)
-
-    service = UnifiedSelfieService()
     try:
         results = await service.process_images(files=files, urls=[])
         return results

@@ -7,17 +7,17 @@ import aiofiles
 import os
 import logging
 from urllib.parse import urlparse
-
 from service.selfie_validator import AdvancedSelfieValidator
 
 logger = logging.getLogger(__name__)
+
 
 class UnifiedSelfieService:
     def __init__(self):
         self.validator = AdvancedSelfieValidator()
         self.session = None
         self.UPLOAD_DIR = "temp_uploads"
-        self.MAX_IMAGES = 20
+        self.MAX_IMAGES = 25
 
     async def _get_session(self):
         if self.session is None:
@@ -38,17 +38,14 @@ class UnifiedSelfieService:
                         status_code=400,
                         detail=f"Failed to download image from {url}. Status: {response.status}"
                     )
-
                 content_type = response.headers.get('content-type', '')
                 if not content_type.startswith('image/'):
                     raise HTTPException(
                         status_code=400,
                         detail=f"URL {url} does not point to an image. Content-Type: {content_type}"
                     )
-
                 async with aiofiles.open(file_path, 'wb') as f:
                     await f.write(await response.read())
-
             return file_path, filename
         except aiohttp.ClientError as e:
             raise HTTPException(
@@ -89,7 +86,6 @@ class UnifiedSelfieService:
         """Process and validate images from both files and URLs"""
         # Create temporary directory
         os.makedirs(self.UPLOAD_DIR, exist_ok=True)
-
         try:
             # Initialize storage for all images
             all_files = []  # List of (file_path, filename) tuples
@@ -114,49 +110,49 @@ class UnifiedSelfieService:
                 downloaded_files = await asyncio.gather(*url_tasks, return_exceptions=True)
                 all_files.extend([f for f in downloaded_files if not isinstance(f, Exception)])
 
-            # Initialize results
-            validation_results = {
-                "total_images": total_images,
-                "valid_images": [],
-                "invalid_images": [],
-                "average_score": 0.0
-            }
+            # Validate all images and track invalid ones
+            invalid_images = []
+            valid_count = 0
 
-            # Validate all images
             for file_path, filename in all_files:
                 result = self.validate_image_sync(file_path, filename)
-                if result['valid']:
-                    validation_results['valid_images'].append(result)
+                if not result['valid']:
+                    invalid_images.append({
+                        "filename": filename,
+                        "reason": result.get('reason', 'Unknown validation failure'),
+                        "score": result.get('score', 0)
+                    })
                 else:
-                    validation_results['invalid_images'].append(result)
+                    valid_count += 1
 
             # Validate success rate
-            total_valid = len(validation_results['valid_images'])
-            if total_valid / total_images < 0.9:
-                error_details = [
-                    {
-                        "filename": img['filename'],
-                        "reason": img.get('reason', 'Unknown validation failure'),
-                        "score": img.get('score', 0)
-                    } for img in validation_results['invalid_images']
-                ]
+            valid_percentage = valid_count / total_images
+            if valid_percentage < 0.9:
                 raise HTTPException(
                     status_code=400,
                     detail={
                         "message": "Insufficient valid selfies",
                         "required": "90%",
-                        "current": f"{total_valid / total_images * 100:.1f}%",
-                        "invalid_images": error_details
+                        "current": f"{valid_percentage * 100:.1f}%",
+                        "invalid_images": invalid_images,
+                        "success": False
                     }
                 )
 
-            # Calculate average score
-            if total_valid > 0:
-                validation_results['average_score'] = round(
-                    sum(img['score'] for img in validation_results['valid_images']) / total_valid, 2
-                )
+            # Return appropriate response based on validation results
+            if len(invalid_images) == 0:
+                return {
+                    "message": "All images are valid",
+                    "total_images": total_images,
+                    "success": True
+                }
 
-            return validation_results
+            return {
+                "total_images": total_images,
+                "invalid_count": len(invalid_images),
+                "invalid_images": invalid_images,
+                "success": False
+            }
 
         finally:
             # Cleanup temporary files
