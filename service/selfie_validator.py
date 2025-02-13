@@ -1,27 +1,37 @@
 import mediapipe as mp
 from ultralytics import YOLO
 import cv2
-from typing import Dict, Any
+import numpy as np
+from typing import Dict, Any, Tuple
 import logging
+
 logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+                   format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class AdvancedSelfieValidator:
     def __init__(self):
         """
-        Initialize ML models for selfie validation
+        Initialize ML models for selfie validation with quality metrics
         """
         try:
             self.face_detector = YOLO('models/yolov11n-face.pt')
-
             self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
                 static_image_mode=True,
                 max_num_faces=1,
                 min_detection_confidence=0.5,
-                refine_landmarks=False  # Add this parameter
+                refine_landmarks=False
             )
+            # Quality thresholds
+            self.quality_thresholds = {
+                'min_resolution': (640, 480),
+                'min_brightness': 0.3,
+                'max_brightness': 0.85,
+                'min_contrast': 0.4,
+                'min_sharpness': 50.0,
+                'face_ratio_range': (0.15, 0.65)
+            }
 
         except Exception as e:
             logger.error(f"Model initialization error: {e}")
@@ -29,73 +39,180 @@ class AdvancedSelfieValidator:
 
     def validate_image(self, image_path: str) -> Dict[str, Any]:
         """
-        Validate if image is a selfie shot
+        Validate if image is a quality selfie shot
         """
         try:
             image = cv2.imread(image_path)
             if image is None:
                 return {"valid": False, "reason": "Unable to read image"}
 
-            # Check face detection
-            face_results = self.face_detector(image)[0]
+            # Basic image quality checks
+            quality_check = self._check_image_quality(image)
+            if not quality_check["valid"]:
+                return quality_check
 
-            # Insufficient or too many faces
+            # Face detection
+            face_results = self.face_detector(image)[0]
             if len(face_results.boxes) != 1:
                 return {
                     "valid": False,
                     "reason": f"Invalid face count: {len(face_results.boxes)}"
                 }
 
-            # Convert to RGB for MediaPipe
-            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
             # Face mesh analysis
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             face_mesh_results = self.mp_face_mesh.process(rgb_image)
-
             if not face_mesh_results.multi_face_landmarks:
                 return {
                     "valid": False,
                     "reason": "No clear face detected"
                 }
 
-            # Selfie shot validation
-            score = self._calculate_selfie_score(image, face_results)
+            # Detailed quality analysis
+            quality_metrics = self._analyze_image_quality(image, face_results)
+
+            # Calculate final score
+            final_score = self._calculate_final_score(quality_metrics)
 
             return {
-                "valid": score >= 0.7,  # 70% threshold for selfie shot
-                "score": float(score),  # Explicitly convert to float
-                "reason": "Selfie shot" if score >= 0.7 else "Not a clear selfie shot"
+                "valid": final_score >= 0.7,
+                "score": final_score,
+                "quality_metrics": quality_metrics,
+                "reason": self._generate_feedback(quality_metrics, final_score)
             }
 
         except Exception as e:
             logger.error(f"Validation error: {e}")
             return {"valid": False, "reason": str(e)}
 
-    def _calculate_selfie_score(self, image, face_results) -> float:
+    def _check_image_quality(self, image: np.ndarray) -> Dict[str, Any]:
         """
-        Calculate selfie shot score based on various factors
+        Perform basic image quality checks
         """
-        # Safely extract face box and confidence
+        height, width = image.shape[:2]
+
+        if width < self.quality_thresholds['min_resolution'][0] or \
+           height < self.quality_thresholds['min_resolution'][1]:
+            return {
+                "valid": False,
+                "reason": f"Image resolution too low: {width}x{height}"
+            }
+
+        return {"valid": True}
+
+    def _analyze_image_quality(self, image: np.ndarray, face_results) -> Dict[str, float]:
+        """
+        Analyze various image quality metrics
+        """
+        # Face position and size
         face_box = face_results.boxes[0]
-
-        # Convert tensor values to float
         x1, y1, x2, y2 = [float(coord) for coord in face_box.xyxy[0]]
-        confidence = float(face_box.conf[0])
+        face_confidence = float(face_box.conf[0])
 
-        # Face size relative to image
+        # Calculate face ratio
         face_area = (x2 - x1) * (y2 - y1)
         image_area = image.shape[0] * image.shape[1]
         face_ratio = face_area / image_area
 
-        # Image composition and brightness
-        brightness = cv2.meanStdDev(image)[0][0][0] / 255.0
-        contrast = cv2.meanStdDev(image)[1][0][0] / 100.0
+        # Brightness and contrast
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        brightness = np.mean(gray_image) / 255.0
+        contrast = np.std(gray_image) / 255.0
 
-        # Scoring components
-        face_size_score = min(face_ratio * 5, 0.5)  # Face should occupy 20-40% of image
-        brightness_score = min(brightness, 0.2)
-        contrast_score = min(contrast, 0.3)
+        # Sharpness
+        laplacian_var = cv2.Laplacian(gray_image, cv2.CV_64F).var()
 
-        # Combine scores
-        total_score = face_size_score + brightness_score + contrast_score + (confidence * 0.5)
-        return min(total_score, 1.0)
+        # Noise estimation
+        noise_level = self._estimate_noise(gray_image)
+
+        return {
+            'face_ratio': face_ratio,
+            'face_confidence': face_confidence,
+            'brightness': brightness,
+            'contrast': contrast,
+            'sharpness': laplacian_var,
+            'noise_level': noise_level
+        }
+
+    def _estimate_noise(self, gray_image: np.ndarray) -> float:
+        """
+        Estimate image noise level
+        """
+        H, W = gray_image.shape
+        M = [[1, -2, 1],
+             [-2, 4, -2],
+             [1, -2, 1]]
+        sigma = np.sum(np.sum(np.absolute(cv2.filter2D(gray_image, -1, np.array(M)))))
+        sigma = sigma * math.sqrt(0.5 * math.pi) / (6 * (W-2) * (H-2))
+        return sigma
+
+    def _calculate_final_score(self, metrics: Dict[str, float]) -> float:
+        """
+        Calculate final quality score based on all metrics
+        """
+        scores = {
+            'face_ratio': self._score_face_ratio(metrics['face_ratio']),
+            'brightness': self._score_brightness(metrics['brightness']),
+            'contrast': self._score_contrast(metrics['contrast']),
+            'sharpness': self._score_sharpness(metrics['sharpness']),
+            'noise': self._score_noise(metrics['noise_level'])
+        }
+
+        weights = {
+            'face_ratio': 0.3,
+            'brightness': 0.2,
+            'contrast': 0.2,
+            'sharpness': 0.2,
+            'noise': 0.1
+        }
+
+        final_score = sum(score * weights[metric] for metric, score in scores.items())
+        return min(max(final_score, 0.0), 1.0)
+
+    def _score_face_ratio(self, ratio: float) -> float:
+        min_ratio, max_ratio = self.quality_thresholds['face_ratio_range']
+        if ratio < min_ratio or ratio > max_ratio:
+            return 0.0
+        return 1.0 - abs((ratio - ((max_ratio + min_ratio) / 2)) / (max_ratio - min_ratio))
+
+    def _score_brightness(self, brightness: float) -> float:
+        min_bright = self.quality_thresholds['min_brightness']
+        max_bright = self.quality_thresholds['max_brightness']
+        if brightness < min_bright or brightness > max_bright:
+            return 0.0
+        return 1.0 - abs((brightness - ((max_bright + min_bright) / 2)) / (max_bright - min_bright))
+
+    def _score_contrast(self, contrast: float) -> float:
+        return min(contrast / self.quality_thresholds['min_contrast'], 1.0)
+
+    def _score_sharpness(self, sharpness: float) -> float:
+        return min(sharpness / self.quality_thresholds['min_sharpness'], 1.0)
+
+    def _score_noise(self, noise: float) -> float:
+        return max(1.0 - (noise / 0.1), 0.0)
+
+    def _generate_feedback(self, metrics: Dict[str, float], final_score: float) -> str:
+        """
+        Generate detailed feedback based on quality metrics
+        """
+        if final_score >= 0.7:
+            return "Good quality selfie"
+
+        issues = []
+        if metrics['face_ratio'] < self.quality_thresholds['face_ratio_range'][0]:
+            issues.append("Face too small")
+        elif metrics['face_ratio'] > self.quality_thresholds['face_ratio_range'][1]:
+            issues.append("Face too close")
+
+        if metrics['brightness'] < self.quality_thresholds['min_brightness']:
+            issues.append("Image too dark")
+        elif metrics['brightness'] > self.quality_thresholds['max_brightness']:
+            issues.append("Image too bright")
+
+        if metrics['contrast'] < self.quality_thresholds['min_contrast']:
+            issues.append("Low contrast")
+
+        if metrics['sharpness'] < self.quality_thresholds['min_sharpness']:
+            issues.append("Image not sharp enough")
+
+        return "Quality issues: " + ", ".join(issues)
