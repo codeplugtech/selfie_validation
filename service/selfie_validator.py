@@ -135,6 +135,32 @@ class AdvancedSelfieValidator:
             'noise_level': noise_level
         }
 
+    def _generate_feedback(self, metrics: Dict[str, float], final_score: float) -> str:
+        """
+        Generate detailed feedback based on quality metrics
+        """
+        if final_score >= 0.7:
+            return "Good quality selfie"
+
+        issues = []
+        if metrics['face_ratio'] < self.quality_thresholds['face_ratio_range'][0]:
+            issues.append("Face too small")
+        elif metrics['face_ratio'] > self.quality_thresholds['face_ratio_range'][1]:
+            issues.append("Face too close")
+
+        if metrics['brightness'] < self.quality_thresholds['min_brightness']:
+            issues.append("Image too dark")
+        elif metrics['brightness'] > self.quality_thresholds['max_brightness']:
+            issues.append("Image too bright")
+
+        if metrics['contrast'] < self.quality_thresholds['min_contrast']:
+            issues.append("Low contrast")
+
+        if metrics['sharpness'] < self.quality_thresholds['min_sharpness']:
+            issues.append("Image not sharp enough")
+
+        return "Quality issues: " + ", ".join(issues)
+
     def _estimate_noise(self, gray_image: np.ndarray) -> float:
         """
         Estimate image noise level
