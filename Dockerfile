@@ -15,12 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set work directory
 WORKDIR /build
 
-# Copy and install requirements
-COPY requirements.txt .
-RUN python -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
-
-# Download model
+# Download model (only using this stage for model download now)
 RUN mkdir -p models && \
     wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov11n-face.pt -O models/yolov11n-face.pt
 
@@ -43,8 +38,12 @@ RUN useradd -m appuser
 # Set work directory
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+# Copy requirements file
+COPY requirements.txt .
+
+# Install dependencies directly in the target architecture
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Copy model from builder
 COPY --from=builder /build/models /app/models
