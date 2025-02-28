@@ -1,5 +1,5 @@
 # Stage 1: Build stage
-FROM python:3.11-slim-buster AS builder
+FROM --platform=$BUILDPLATFORM python:3.11-slim-buster AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -25,7 +25,7 @@ RUN mkdir -p models && \
     wget https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov11n-face.pt -O models/yolov11n-face.pt
 
 # Stage 2: Runtime stage
-FROM python:3.11-slim-buster
+FROM --platform=$TARGETPLATFORM python:3.11-slim-buster
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
